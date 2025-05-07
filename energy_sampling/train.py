@@ -189,14 +189,16 @@ def eval_step(eval_data, energy, gfn_model, final_eval=False):
     metrics = dict()
     if final_eval:
         init_state = torch.zeros(final_eval_data_size, energy.data_ndim).to(device)
-        samples, metrics['final_eval/log_Z'], metrics['final_eval/log_Z_lb'], metrics[
+        samples, metrics['final_eval/log_Z_r'], metrics['final_eval/log_Z_lb'], metrics[
             'final_eval/log_Z_learned'] = log_partition_function(
             init_state, gfn_model, energy.log_reward)
+        metrics['final_eval/log_Z_f'] = log_partition_function_bwd(eval_data, gfn_model, energy.log_reward)
     else:
         init_state = torch.zeros(eval_data_size, energy.data_ndim).to(device)
-        samples, metrics['eval/log_Z'], metrics['eval/log_Z_lb'], metrics[
+        samples, metrics['eval/log_Z_r'], metrics['eval/log_Z_lb'], metrics[
             'eval/log_Z_learned'] = log_partition_function(
             init_state, gfn_model, energy.log_reward)
+        metrics['eval/log_Z_f'] = log_partition_function_bwd(eval_data, gfn_model, energy.log_reward)
     if eval_data is None:
         log_elbo = None
         sample_based_metrics = None
@@ -315,17 +317,15 @@ def train():
             if i % 1000 == 0:
                 torch.save(gfn_model.state_dict(), f'{name}model.pt')
 
-    eval_results = final_eval(energy, gfn_model).to(device)
+    final_eval_data = energy.sample(final_eval_data_size).to(device)
+    eval_results = eval_step(final_eval_data, energy, gfn_model, final_eval=True)
     metrics.update(eval_results)
     if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
         del metrics['eval/log_Z_learned']
+    with open(f'{name}_results.txt', 'w') as f:
+        for key, value in eval_results.items():
+            f.write(f'{key}: {value}\n')
     torch.save(gfn_model.state_dict(), f'{name}model_final.pt')
-
-
-def final_eval(energy, gfn_model):
-    final_eval_data = energy.sample(final_eval_data_size)
-    results = eval_step(final_eval_data, energy, gfn_model, final_eval=True)
-    return results
 
 
 def eval():
