@@ -92,7 +92,7 @@ class ManyWell(BaseSet):
     def sample(self, batch_size):
         return torch.cat(
             [self.sample_doublewell(batch_size) for _ in range(self.n_wells)],
-        dim=-1)
+        dim=-1).to(self.device)
 
     def viz_pdf(self, fsave="density.png", lim=3):
         raise NotImplementedError

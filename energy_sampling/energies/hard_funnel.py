@@ -48,7 +48,7 @@ class HardFunnel(BaseSet):
     def sample(self, batch_size):
         dominant_x = self.dist_dominant.sample((batch_size,))  # (B,1)
         x_others = self._dist_other(dominant_x).sample()  # (B, dim-1)
-        return torch.hstack([dominant_x, x_others])
+        return torch.hstack([dominant_x, x_others]).to(self.device)
 
     def _dist_other(self, dominant_x):
         variance_other = torch.exp(dominant_x)

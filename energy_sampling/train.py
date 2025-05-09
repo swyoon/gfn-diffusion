@@ -32,7 +32,7 @@ parser.add_argument('--subtb_lambda', type=int, default=2)
 parser.add_argument('--t_scale', type=float, default=5.)
 parser.add_argument('--log_var_range', type=float, default=4.)
 parser.add_argument('--energy', type=str, default='9gmm',
-                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well'))
+                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well', 'lgcp'))
 parser.add_argument('--mode_fwd', type=str, default="tb", choices=('tb', 'tb-avg', 'db', 'subtb', "pis"))
 parser.add_argument('--mode_bwd', type=str, default="tb", choices=('tb', 'tb-avg', 'mle'))
 parser.add_argument('--both_ways', action='store_true', default=False)
@@ -105,6 +105,11 @@ eval_data_size = 2000
 final_eval_data_size = 2000
 plot_data_size = 2000
 final_plot_data_size = 2000
+if args.energy == 'lgcp': # OOM
+    eval_data_size = 1000
+    final_eval_data_size = 1000
+    plot_data_size = 1000
+    final_plot_data_size = 1000
 
 if args.pis_architectures:
     args.zero_init = True
@@ -130,6 +135,8 @@ def get_energy():
         energy = EasyFunnel(device=device)
     elif args.energy == 'many_well':
         energy = ManyWell(device=device)
+    elif args.energy == 'lgcp':
+        energy = Cox(device=device)
     return energy
 
 
@@ -192,13 +199,15 @@ def eval_step(eval_data, energy, gfn_model, final_eval=False):
         samples, metrics['final_eval/log_Z_r'], metrics['final_eval/log_Z_lb'], metrics[
             'final_eval/log_Z_learned'] = log_partition_function(
             init_state, gfn_model, energy.log_reward)
-        metrics['final_eval/log_Z_f'] = log_partition_function_bwd(eval_data, gfn_model, energy.log_reward)
+        if eval_data is not None:
+            metrics['final_eval/log_Z_f'] = log_partition_function_bwd(eval_data, gfn_model, energy.log_reward)
     else:
         init_state = torch.zeros(eval_data_size, energy.data_ndim).to(device)
         samples, metrics['eval/log_Z_r'], metrics['eval/log_Z_lb'], metrics[
             'eval/log_Z_learned'] = log_partition_function(
             init_state, gfn_model, energy.log_reward)
-        metrics['eval/log_Z_f'] = log_partition_function_bwd(eval_data, gfn_model, energy.log_reward)
+        if eval_data is not None:
+            metrics['eval/log_Z_f'] = log_partition_function_bwd(eval_data, gfn_model, energy.log_reward)
     if eval_data is None:
         log_elbo = None
         sample_based_metrics = None
@@ -275,7 +284,7 @@ def train():
         os.makedirs(name)
 
     energy = get_energy()
-    eval_data = energy.sample(eval_data_size).to(device)
+    eval_data = energy.sample(eval_data_size)
 
     config = args.__dict__
     config["Experiment"] = "{args.energy}"
@@ -317,7 +326,7 @@ def train():
             if i % 1000 == 0:
                 torch.save(gfn_model.state_dict(), f'{name}model.pt')
 
-    final_eval_data = energy.sample(final_eval_data_size).to(device)
+    final_eval_data = energy.sample(final_eval_data_size)
     eval_results = eval_step(final_eval_data, energy, gfn_model, final_eval=True)
     metrics.update(eval_results)
     if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
