@@ -32,7 +32,7 @@ parser.add_argument('--subtb_lambda', type=int, default=2)
 parser.add_argument('--t_scale', type=float, default=5.)
 parser.add_argument('--log_var_range', type=float, default=4.)
 parser.add_argument('--energy', type=str, default='9gmm',
-                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well', 'lgcp'))
+                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well', 'lgcp', 'nice'))
 parser.add_argument('--mode_fwd', type=str, default="tb", choices=('tb', 'tb-avg', 'db', 'subtb', "pis"))
 parser.add_argument('--mode_bwd', type=str, default="tb", choices=('tb', 'tb-avg', 'mle'))
 parser.add_argument('--both_ways', action='store_true', default=False)
@@ -137,6 +137,8 @@ def get_energy():
         energy = ManyWell(device=device)
     elif args.energy == 'lgcp':
         energy = Cox(device=device)
+    elif args.energy == 'nice':
+        energy = Nice(device=device)
     return energy
 
 
@@ -300,7 +302,6 @@ def train():
                     pis_architectures=args.pis_architectures, lgv_layers=args.lgv_layers,
                     joint_layers=args.joint_layers, zero_init=args.zero_init, device=device).to(device)
 
-
     gfn_optimizer = get_gfn_optimizer(gfn_model, args.lr_policy, args.lr_flow, args.lr_back, args.learn_pb,
                                       args.conditional_flow_model, args.use_weight_decay, args.weight_decay)
 
@@ -329,8 +330,8 @@ def train():
     final_eval_data = energy.sample(final_eval_data_size)
     eval_results = eval_step(final_eval_data, energy, gfn_model, final_eval=True)
     metrics.update(eval_results)
-    if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
-        del metrics['eval/log_Z_learned']
+    # if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
+    #     del metrics['eval/log_Z_learned']
     with open(f'{name}_results.txt', 'w') as f:
         for key, value in eval_results.items():
             f.write(f'{key}: {value}\n')
