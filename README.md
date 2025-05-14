@@ -14,6 +14,15 @@ Firstly, please go to **energy_sampling** directory:
 cd energy_sampling
 ```
 
+## if vgs environment exists from Value-Gradient-Sampler Repo:
+
+conda activate vgs
+pip install einops
+cd ./energy_sampling
+
+bash scripts/figureB_funnel_db.sh
+bash scripts/figureB_funnel_sub_db.sh
+
 In order to run the experiment, you should choose one of the following implemented energy functions:
 
 - **25gmm**
