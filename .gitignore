@@ -1,0 +1,6 @@
+*.pyc
+*.png
+*.pdf
+*.pt
+wandb/
+*.txt
