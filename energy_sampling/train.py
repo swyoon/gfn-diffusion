@@ -252,7 +252,8 @@ def eval_step(eval_data, energy, gfn_model, final_eval=False):
     return metrics
 
 
-def train_step(energy, gfn_model, gfn_optimizer, it, exploratory, buffer, buffer_ls, exploration_factor, exploration_wd):
+def train_step(energy, gfn_model, gfn_optimizer, it,buffer, buffer_ls, args):
+    exploratory, exploration_factor, exploration_wd = args.exploratory, args.exploration_factor, args.exploration_wd
     gfn_model.zero_grad()
 
     exploration_std = get_exploration_std(it, exploratory, exploration_factor, exploration_wd)
@@ -273,6 +274,8 @@ def train_step(energy, gfn_model, gfn_optimizer, it, exploratory, buffer, buffer
         loss = fwd_train_step(energy, gfn_model, exploration_std)
 
     loss.backward()
+    if args.energy == 'lj13' or args.energy == 'lj55':
+        torch.nn.utils.clip_grad_norm_(gfn_model.parameters(), 1.0)
     gfn_optimizer.step()
     return loss.item()
 
@@ -345,8 +348,8 @@ def train():
     gfn_model.train()
     best_tvd_d = np.inf
     for i in trange(args.epochs + 1):
-        metrics['train/loss'] = train_step(energy, gfn_model, gfn_optimizer, i, args.exploratory,
-                                           buffer, buffer_ls, args.exploration_factor, args.exploration_wd)
+        metrics['train/loss'] = train_step(energy, gfn_model, gfn_optimizer, i,
+                                           buffer, buffer_ls, args)
         if i % 100 == 0:
             if args.energy == 'lj13' or args.energy == 'lj55':
                 metrics.update(eval_step_lj(eval_data, energy, gfn_model))
