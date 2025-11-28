@@ -94,7 +94,14 @@ class LennardJonesPotential(BaseSet):
             lj_energies = lj_energies + osc_energies * self._oscillator_scale
         
         return lj_energies
-    
+
+    def log_reward(self, x):
+        if self._n_particles == 13:
+            clip = 1e4
+        if self._n_particles == 55:
+            clip = 1e6
+        clipped_energy = torch.clamp(self.energy(x), max=clip)
+        return -clipped_energy    
 
     def sample(self, batch_size):
         assert self.data is not None, "No ground truth sample provided"

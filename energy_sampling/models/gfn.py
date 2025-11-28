@@ -236,9 +236,7 @@ class GFN(nn.Module):
             else:
                 s_ = s + self.dt * pf_mean.detach() + np.sqrt(self.dt) * (
                         pflogvars_sample / 2).exp() * torch.randn_like(s, device=self.device)
-            s_ = remove_mean(s_, self.particle_exp, 3)
             noise = ((s_ - s) - self.dt * pf_mean) / (np.sqrt(self.dt) * (pflogvars / 2).exp())
-            
             logpf[:, i] = -0.5 * (noise ** 2 + logtwopi + np.log(self.dt) + pflogvars).sum(1)
 
             if self.learn_pb:
