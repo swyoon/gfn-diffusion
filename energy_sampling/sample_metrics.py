@@ -307,3 +307,44 @@ def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor,
         for name, to_return in zip(names, to_return):
             metrics[name] = to_return
     return metrics
+
+
+
+import numpy as np
+import math
+
+
+def interatomic_dist(x, n_particles, n_dim):
+    batchsize = x.shape[0]
+    x = x.view(batchsize, n_particles, n_dim)
+    # Compute the pairwise interatomic distances
+    # removes duplicates and diagonal
+    distances = x[:, None, :, :] - x[:, :, None, :]
+    distances = distances[:, torch.triu(torch.ones((n_particles, n_particles)), diagonal=1) == 1,]
+    dist = torch.linalg.norm(distances, dim=-1)
+    return dist
+
+
+def Energy_TVD_particle(gen_sample, gt_sample, energy):
+    gt_energy = energy(gt_sample).detach().cpu()
+    gen_energy = energy(gen_sample).detach().cpu()
+    return total_variation_distance(gen_energy, gt_energy)
+
+
+def Atomic_TVD_particle(gen_sample, gt_sample, n_particles, n_dim):
+    gt_interatomic = interatomic_dist(gt_sample, n_particles, n_dim).detach().cpu()
+    gen_interatomic = interatomic_dist(gen_sample, n_particles, n_dim).detach().cpu()
+    return total_variation_distance(gen_interatomic, gt_interatomic)
+
+
+""" Evaluation code from https://github.com/jiajunhe98/DiKL, DiKL/evaluation/metric.py"""
+def total_variation_distance(samples1, samples_test, bins=200):
+    H_data_set, x_data_set = np.histogram(samples_test, bins=bins)
+    H_generated_samples, _ = np.histogram(samples1, bins=(x_data_set))
+    total_var = (
+        0.5
+        * np.abs(
+            H_data_set / H_data_set.sum() - H_generated_samples / H_generated_samples.sum()
+        ).sum()
+    )
+    return total_var

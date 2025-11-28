@@ -4,7 +4,7 @@ import torch
 import os
 
 from utils import set_seed, cal_subtb_coef_matrix, fig_to_image, get_gfn_optimizer, get_gfn_forward_loss, \
-    get_gfn_backward_loss, get_exploration_std, get_name
+    get_gfn_backward_loss, get_exploration_std, get_name, remove_mean
 from buffer import ReplayBuffer
 from langevin import langevin_dynamics
 from models import GFN
@@ -15,6 +15,7 @@ from evaluations import *
 import matplotlib.pyplot as plt
 from tqdm import trange
 import wandb
+from sample_metrics import Energy_TVD_particle, Atomic_TVD_particle
 
 parser = argparse.ArgumentParser(description='GFN Linear Regression')
 parser.add_argument('--lr_policy', type=float, default=1e-3)
@@ -196,6 +197,25 @@ def plot_step(energy, gfn_model, name):
                 "visualization/kde_overlay": wandb.Image(fig_to_image(fig_kde_overlay)),
                 "visualization/kde": wandb.Image(fig_to_image(fig_kde))}
 
+def eval_step_lj(eval_data, energy, gfn_model):
+    gfn_model.eval()
+    metrics = dict()
+    initial_state = torch.zeros(eval_data_size, energy.data_ndim).to(device)
+    states, log_pfs, log_pbs, log_fs = gfn_model.get_trajectory_fwd(initial_state, None, energy.log_reward)
+    samples = states[:, -1]
+    n_particles = energy._n_particles
+    n_dim = energy._n_dims
+    samples = remove_mean(samples, n_particles, n_dim)
+    tvd_e = Energy_TVD_particle(samples, eval_data, energy.energy)
+    print(f"TVD-E : {tvd_e}")
+    tvd_d = Atomic_TVD_particle(samples, eval_data, n_particles, n_dim)
+    print(f"TVD-D : {tvd_d}")
+    metrics["TVD_E"] = tvd_e
+    metrics["TVD_D"] = tvd_d
+    metrics.update(get_sample_metrics(samples, eval_data))
+    gfn_model.train()
+    return metrics
+
 
 def eval_step(eval_data, energy, gfn_model, final_eval=False):
     gfn_model.eval()
@@ -317,13 +337,21 @@ def train():
     buffer_ls = ReplayBuffer(args.buffer_size, device, energy.log_reward,args.batch_size, data_ndim=energy.data_ndim, beta=args.beta,
                           rank_weight=args.rank_weight, prioritized=args.prioritized)
     gfn_model.train()
+    best_tvd_d = np.inf
     for i in trange(args.epochs + 1):
         metrics['train/loss'] = train_step(energy, gfn_model, gfn_optimizer, i, args.exploratory,
                                            buffer, buffer_ls, args.exploration_factor, args.exploration_wd)
         if i % 100 == 0:
-            metrics.update(eval_step(eval_data, energy, gfn_model, final_eval=False))
-            if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
-                del metrics['eval/log_Z_learned']
+            if args.energy == 'lj13' or args.energy == 'lj55':
+                metrics.update(eval_step_lj(eval_data, energy, gfn_model))
+                if metrics["TVD_D"] < best_tvd_d:
+                    best_tvd_d = metrics["TVD_D"]
+                    print(f"New best model found at iteration {i} with TVD-D: {best_tvd_d}")
+                    torch.save(gfn_model.state_dict(), f'{name}best_model.pt')
+            else:
+                metrics.update(eval_step(eval_data, energy, gfn_model, final_eval=False))
+                if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
+                    del metrics['eval/log_Z_learned']
             images = plot_step(energy, gfn_model, name)
             metrics.update(images)
             plt.close('all')
@@ -331,15 +359,23 @@ def train():
             if i % 1000 == 0:
                 torch.save(gfn_model.state_dict(), f'{name}model.pt')
 
-    final_eval_data = energy.sample(final_eval_data_size)
-    eval_results = eval_step(final_eval_data, energy, gfn_model, final_eval=True)
-    metrics.update(eval_results)
-    # if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
-    #     del metrics['eval/log_Z_learned']
-    with open(f'{name}_results.txt', 'w') as f:
-        for key, value in eval_results.items():
-            f.write(f'{key}: {value}\n')
-    torch.save(gfn_model.state_dict(), f'{name}model_final.pt')
+    if args.energy == 'lj13' or args.energy == 'lj55':
+        print(f"Loading best model with TVD-D: {best_tvd_d} for final sample generation")
+        gfn_model.load_state_dict(torch.load(f'{name}best_model.pt'))
+        initial_state = torch.zeros(10000, energy.data_ndim).to(device)
+        states, _, _, _ = gfn_model.get_trajectory_fwd(initial_state, None, energy.log_reward)
+        samples = states[:, -1]
+        torch.save(samples, f'{name}final_samples_10000.pt')
+    else:
+        final_eval_data = energy.sample(final_eval_data_size)
+        eval_results = eval_step(final_eval_data, energy, gfn_model, final_eval=True)
+        metrics.update(eval_results)
+        # if 'tb-avg' in args.mode_fwd or 'tb-avg' in args.mode_bwd:
+        #     del metrics['eval/log_Z_learned']
+        with open(f'{name}_results.txt', 'w') as f:
+            for key, value in eval_results.items():
+                f.write(f'{key}: {value}\n')
+        torch.save(gfn_model.state_dict(), f'{name}model_final.pt')
 
 
 def eval():
