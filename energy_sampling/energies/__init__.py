@@ -5,3 +5,4 @@ from .easy_funnel import EasyFunnel
 from .many_well import ManyWell
 from .lgcp import Cox
 from .nice import Nice
+from .lj_potential import LennardJonesPotential

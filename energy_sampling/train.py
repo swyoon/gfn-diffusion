@@ -32,7 +32,7 @@ parser.add_argument('--subtb_lambda', type=int, default=2)
 parser.add_argument('--t_scale', type=float, default=5.)
 parser.add_argument('--log_var_range', type=float, default=4.)
 parser.add_argument('--energy', type=str, default='9gmm',
-                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well', 'lgcp', 'nice'))
+                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well', 'lgcp', 'nice', 'lj13', 'lj55'))
 parser.add_argument('--mode_fwd', type=str, default="tb", choices=('tb', 'tb-avg', 'db', 'subtb', "pis"))
 parser.add_argument('--mode_bwd', type=str, default="tb", choices=('tb', 'tb-avg', 'mle'))
 parser.add_argument('--both_ways', action='store_true', default=False)
@@ -105,7 +105,7 @@ eval_data_size = 2000
 final_eval_data_size = 2000
 plot_data_size = 2000
 final_plot_data_size = 2000
-if args.energy == 'lgcp': # OOM
+if args.energy == 'lj13' or args.energy == 'lj55': # validation data size is 1000 for lj experiments
     eval_data_size = 1000
     final_eval_data_size = 1000
     plot_data_size = 1000
@@ -139,6 +139,10 @@ def get_energy():
         energy = Cox(device=device)
     elif args.energy == 'nice':
         energy = Nice(device=device)
+    elif args.energy == 'lj13':
+        energy = LennardJonesPotential(dim=39, n_particles=13, device=device, data_path="datasets/val_LJ13_1000.npy")
+    elif args.energy == 'lj55':
+        energy = LennardJonesPotential(dim=165, n_particles=55, device=device, data_path="datasets/val_LJ55_1000.npy")
     return energy
 
 
