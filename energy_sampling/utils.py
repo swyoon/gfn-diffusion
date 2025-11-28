@@ -55,9 +55,14 @@ def fig_to_image(fig):
     )
 
 
-def get_gfn_optimizer(gfn_model, lr_policy, lr_flow, lr_back, back_model=False, conditional_flow_model=False, use_weight_decay=False, weight_decay=1e-7):
-    param_groups = [ {'params': gfn_model.t_model.parameters()},
+def get_gfn_optimizer(gfn_model, lr_policy, lr_flow, lr_back, back_model=False, conditional_flow_model=False, use_weight_decay=False, weight_decay=1e-7, particle_exp_param=0):
+    if particle_exp_param==0:
+        param_groups = [ {'params': gfn_model.t_model.parameters()},
                      {'params': gfn_model.s_model.parameters()},
+                     {'params': gfn_model.joint_model.parameters()},
+                     {'params': gfn_model.langevin_scaling_model.parameters()} ]
+    else:
+        param_groups = [ 
                      {'params': gfn_model.joint_model.parameters()},
                      {'params': gfn_model.langevin_scaling_model.parameters()} ]
     if conditional_flow_model:

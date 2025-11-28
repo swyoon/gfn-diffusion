@@ -107,10 +107,11 @@ final_eval_data_size = 2000
 plot_data_size = 2000
 final_plot_data_size = 2000
 if args.energy == 'lj13' or args.energy == 'lj55': # validation data size is 1000 for lj experiments
-    eval_data_size = 1000
-    final_eval_data_size = 1000
-    plot_data_size = 1000
-    final_plot_data_size = 1000
+    joint_number= 100
+    eval_data_size = joint_number
+    final_eval_data_size = joint_number
+    plot_data_size = joint_number
+    final_plot_data_size = joint_number
 
 if args.pis_architectures:
     args.zero_init = True
@@ -315,7 +316,12 @@ def train():
     config = args.__dict__
     config["Experiment"] = "{args.energy}"
     wandb.init(project="GFN Energy", config=config, name=name)
-
+    check_particle = args.energy in ['lj13', 'lj55']
+    if check_particle:
+        print("Using particle-experience architecture")
+        particle_exp_param = energy._n_particles
+    else:
+        particle_exp_param = 0
     gfn_model = GFN(energy.data_ndim, args.s_emb_dim, args.hidden_dim, args.harmonics_dim, args.t_emb_dim,
                     trajectory_length=args.T, clipping=args.clipping, lgv_clip=args.lgv_clip, gfn_clip=args.gfn_clip,
                     langevin=args.langevin, learned_variance=args.learned_variance,
@@ -324,10 +330,10 @@ def train():
                     t_scale=args.t_scale, langevin_scaling_per_dimension=args.langevin_scaling_per_dimension,
                     conditional_flow_model=args.conditional_flow_model, learn_pb=args.learn_pb,
                     pis_architectures=args.pis_architectures, lgv_layers=args.lgv_layers,
-                    joint_layers=args.joint_layers, zero_init=args.zero_init, device=device).to(device)
+                    joint_layers=args.joint_layers, zero_init=args.zero_init, device=device, particle_exp=particle_exp_param).to(device)
 
     gfn_optimizer = get_gfn_optimizer(gfn_model, args.lr_policy, args.lr_flow, args.lr_back, args.learn_pb,
-                                      args.conditional_flow_model, args.use_weight_decay, args.weight_decay)
+                                      args.conditional_flow_model, args.use_weight_decay, args.weight_decay, particle_exp_param)
 
     print(gfn_model)
     metrics = dict()

@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .architectures import *
+from .egnn import *
+from .vgs_value import *
 from utils import gaussian_params
 
 logtwopi = math.log(2 * math.pi)
@@ -19,7 +21,7 @@ class GFN(nn.Module):
                  langevin_scaling_per_dimension: bool = True, conditional_flow_model: bool = False,
                  learn_pb: bool = False,
                  pis_architectures: bool = False, lgv_layers: int = 3, joint_layers: int = 2,
-                 zero_init: bool = False, device=torch.device('cuda')):
+                 zero_init: bool = False, device=torch.device('cuda'), particle_exp: int = 0):
         super(GFN, self).__init__()
         self.dim = dim
         self.harmonics_dim = harmonics_dim
@@ -48,8 +50,43 @@ class GFN(nn.Module):
         self.dt = 1. / trajectory_length
         self.log_var_range = log_var_range
         self.device = device
+        self.particle_exp = particle_exp
+        if self.pis_architectures and self.particle_exp!=0:
+            #self.t_model = torch.nn.Parameter(torch.tensor(0.).to(self.device))
+            #self.s_model = torch.nn.Parameter(torch.tensor(0.).to(self.device))
+            self.joint_model = EGNN_dynamics(n_particles= particle_exp,
+                                            n_dimension= 3, 
+                                            hidden_nf=64,
+                                            act_fn=torch.nn.SiLU(),
+                                            n_layers=3,
+                                            recurrent=True, 
+                                            attention=True,
+                                            condition_time=True,
+                                            tanh=True,
+                                            agg="sum",
+                                            zero_init=zero_init)
+            #if learn_pb:
+            #    self.back_model = JointPolicyPIS(dim, s_emb_dim, t_dim, hidden_dim, 2 * dim, joint_layers, zero_init)
+            self.pb_scale_range = pb_scale_range
 
-        if self.pis_architectures:
+            if self.conditional_flow_model:
+                flow_model_net = FCNet_temb_deeperv3(in_dim= (particle_exp)*(particle_exp-1)//2,
+                                                     out_dim=1,
+                                                     hidden_dim=hidden_dim,
+                                                     t_emb_dim=t_dim,
+                                                     t_feature_dim=hidden_dim) 
+                self.flow_model = invariant_wrapper(n_particles= particle_exp, n_dim = 3, net = flow_model_net, dis_reciprocal=False, eps=1.0, zero_init=zero_init)
+            else:
+                self.flow_model = torch.nn.Parameter(torch.tensor(0.).to(self.device))
+
+            if self.langevin_scaling_per_dimension:
+                self.langevin_scaling_model = LangevinScalingModelPIS(s_emb_dim, t_dim, hidden_dim, dim,
+                                                                      lgv_layers, zero_init)
+            else:
+                self.langevin_scaling_model = LangevinScalingModelPIS(s_emb_dim, t_dim, hidden_dim, 1,
+                                                                      lgv_layers, zero_init)
+
+        elif self.pis_architectures:
 
             self.t_model = TimeEncodingPIS(harmonics_dim, t_dim, hidden_dim)
             self.s_model = StateEncodingPIS(dim, hidden_dim, s_emb_dim)
@@ -98,34 +135,63 @@ class GFN(nn.Module):
         return mean, logvar + np.log(self.pf_std_per_traj) * 2.
 
     def predict_next_state(self, s, t, log_r):
-        if self.langevin:
-            s.requires_grad_(True)
-            with torch.enable_grad():
-                grad_log_r = torch.autograd.grad(log_r(s).sum(), s)[0].detach()
-                grad_log_r = torch.nan_to_num(grad_log_r)
-                if self.clipping:
-                    grad_log_r = torch.clip(grad_log_r, -self.lgv_clip, self.lgv_clip)
+        if self.particle_exp!=0:
+            if self.langevin:
+                s.requires_grad_(True)
+                with torch.enable_grad():
+                    grad_log_r = torch.autograd.grad(log_r(s).sum(), s)[0].detach()
+                    grad_log_r = torch.nan_to_num(grad_log_r)
+                    if self.clipping:
+                        grad_log_r = torch.clip(grad_log_r, -self.lgv_clip, self.lgv_clip)
 
-        bsz = s.shape[0]
+            bsz = s.shape[0]
 
-        t_lgv = t
+            t_lgv = t
 
-        t = self.t_model(t).repeat(bsz, 1)
-        s = self.s_model(s)
-        s_new = self.joint_model(s, t)
+            t_vec = process_single_t(s, t)
+            s_new = self.joint_model(s, t_vec)
+            #print(s.shape, s_new.shape)
+            flow = self.flow_model(s, t).squeeze(-1) if self.conditional_flow_model or self.partial_energy else self.flow_model
 
-        flow = self.flow_model(s, t).squeeze(-1) if self.conditional_flow_model or self.partial_energy else self.flow_model
+            if self.langevin:
+                if self.pis_architectures:
+                    scale = self.langevin_scaling_model(t_lgv)
+                else:
+                    scale = self.langevin_scaling_model(s, t)
+                s_new[..., :self.dim] += scale * grad_log_r
 
-        if self.langevin:
-            if self.pis_architectures:
-                scale = self.langevin_scaling_model(t_lgv)
-            else:
-                scale = self.langevin_scaling_model(s, t)
-            s_new[..., :self.dim] += scale * grad_log_r
+            if self.clipping:
+                s_new = torch.clip(s_new, -self.gfn_clip, self.gfn_clip)
+            return s_new, flow.squeeze(-1)
+        else:
+            if self.langevin:
+                s.requires_grad_(True)
+                with torch.enable_grad():
+                    grad_log_r = torch.autograd.grad(log_r(s).sum(), s)[0].detach()
+                    grad_log_r = torch.nan_to_num(grad_log_r)
+                    if self.clipping:
+                        grad_log_r = torch.clip(grad_log_r, -self.lgv_clip, self.lgv_clip)
 
-        if self.clipping:
-            s_new = torch.clip(s_new, -self.gfn_clip, self.gfn_clip)
-        return s_new, flow.squeeze(-1)
+            bsz = s.shape[0]
+
+            t_lgv = t
+
+            t = self.t_model(t).repeat(bsz, 1)
+            s = self.s_model(s)
+            s_new = self.joint_model(s, t)
+
+            flow = self.flow_model(s, t).squeeze(-1) if self.conditional_flow_model or self.partial_energy else self.flow_model
+
+            if self.langevin:
+                if self.pis_architectures:
+                    scale = self.langevin_scaling_model(t_lgv)
+                else:
+                    scale = self.langevin_scaling_model(s, t)
+                s_new[..., :self.dim] += scale * grad_log_r
+
+            if self.clipping:
+                s_new = torch.clip(s_new, -self.gfn_clip, self.gfn_clip)
+            return s_new, flow.squeeze(-1)
 
     def get_trajectory_fwd(self, s, exploration_std, log_r, pis=False):
         bsz = s.shape[0]
@@ -137,8 +203,11 @@ class GFN(nn.Module):
 
         for i in range(self.trajectory_length):
             pfs, flow = self.predict_next_state(s, i * self.dt, log_r)
-            pf_mean, pflogvars = self.split_params(pfs)
-
+            if self.particle_exp==0:
+                pf_mean, pflogvars = self.split_params(pfs)
+            else:
+                pf_mean = pfs
+                pflogvars = torch.zeros_like(pf_mean)
             logf[:, i] = flow
             if self.partial_energy:
                 ref_log_var = np.log(self.t_scale * max(1, i) * self.dt)
@@ -167,8 +236,9 @@ class GFN(nn.Module):
             else:
                 s_ = s + self.dt * pf_mean.detach() + np.sqrt(self.dt) * (
                         pflogvars_sample / 2).exp() * torch.randn_like(s, device=self.device)
-
+            s_ = remove_mean(s_, self.particle_exp, 3)
             noise = ((s_ - s) - self.dt * pf_mean) / (np.sqrt(self.dt) * (pflogvars / 2).exp())
+            
             logpf[:, i] = -0.5 * (noise ** 2 + logtwopi + np.log(self.dt) + pflogvars).sum(1)
 
             if self.learn_pb:
