@@ -33,7 +33,7 @@ parser.add_argument('--subtb_lambda', type=int, default=2)
 parser.add_argument('--t_scale', type=float, default=5.)
 parser.add_argument('--log_var_range', type=float, default=4.)
 parser.add_argument('--energy', type=str, default='9gmm',
-                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well', 'lgcp', 'nice', 'lj13', 'lj55'))
+                    choices=('9gmm', '25gmm', 'hard_funnel', 'easy_funnel', 'many_well', 'lgcp', 'nice', 'lj13', 'lj55', 'dw4'))
 parser.add_argument('--mode_fwd', type=str, default="tb", choices=('tb', 'tb-avg', 'db', 'subtb', "pis"))
 parser.add_argument('--mode_bwd', type=str, default="tb", choices=('tb', 'tb-avg', 'mle'))
 parser.add_argument('--both_ways', action='store_true', default=False)
@@ -106,7 +106,7 @@ eval_data_size = 2000
 final_eval_data_size = 2000
 plot_data_size = 2000
 final_plot_data_size = 2000
-if args.energy == 'lj13' or args.energy == 'lj55': # validation data size is 1000 for lj experiments
+if args.energy == 'lj13' or args.energy == 'lj55' or args.energy == 'dw4':
     joint_number= 100
     eval_data_size = joint_number
     final_eval_data_size = joint_number
@@ -145,6 +145,8 @@ def get_energy():
         energy = LennardJonesPotential(dim=39, n_particles=13, device=device, data_path="datasets/val_LJ13_1000.npy")
     elif args.energy == 'lj55':
         energy = LennardJonesPotential(dim=165, n_particles=55, device=device, data_path="datasets/val_LJ55_1000.npy")
+    elif args.energy == 'dw4':
+        energy = MultiDoubleWellPotential(device=device, dim=8, n_particles=4, data_path="datasets/val_DW4_1000.npy")
     return energy
 
 
@@ -198,7 +200,7 @@ def plot_step(energy, gfn_model, name):
                 "visualization/kde_overlay": wandb.Image(fig_to_image(fig_kde_overlay)),
                 "visualization/kde": wandb.Image(fig_to_image(fig_kde))}
 
-def eval_step_lj(eval_data, energy, gfn_model):
+def eval_step_particle(eval_data, energy, gfn_model):
     gfn_model.eval()
     metrics = dict()
     initial_state = torch.zeros(eval_data_size, energy.data_ndim).to(device)
@@ -351,8 +353,8 @@ def train():
         metrics['train/loss'] = train_step(energy, gfn_model, gfn_optimizer, i,
                                            buffer, buffer_ls, args)
         if i % 100 == 0:
-            if args.energy == 'lj13' or args.energy == 'lj55':
-                metrics.update(eval_step_lj(eval_data, energy, gfn_model))
+            if args.energy == 'lj13' or args.energy == 'lj55' or args.energy == 'dw4':
+                metrics.update(eval_step_particle(eval_data, energy, gfn_model))
                 if metrics["TVD_D"] < best_tvd_d:
                     best_tvd_d = metrics["TVD_D"]
                     print(f"New best model found at iteration {i} with TVD-D: {best_tvd_d}")
@@ -368,7 +370,7 @@ def train():
             if i % 1000 == 0:
                 torch.save(gfn_model.state_dict(), f'{name}model.pt')
 
-    if args.energy == 'lj13' or args.energy == 'lj55':
+    if args.energy == 'lj13' or args.energy == 'lj55' or args.energy == 'dw4':
         print(f"Loading best model with TVD-D: {best_tvd_d} for final sample generation")
         gfn_model.load_state_dict(torch.load(f'{name}best_model.pt'))
         initial_state = torch.zeros(10000, energy.data_ndim).to(device)
