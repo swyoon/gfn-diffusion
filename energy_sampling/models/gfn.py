@@ -207,7 +207,7 @@ class GFN(nn.Module):
                 pf_mean, pflogvars = self.split_params(pfs)
             else:
                 pf_mean = pfs
-                pflogvars = torch.zeros_like(pf_mean)
+                pflogvars = torch.zeros_like(pf_mean)  + np.log(self.pf_std_per_traj) * 2.
             logf[:, i] = flow
             if self.partial_energy:
                 ref_log_var = np.log(self.t_scale * max(1, i) * self.dt)

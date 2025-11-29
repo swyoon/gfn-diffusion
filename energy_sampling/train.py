@@ -277,7 +277,7 @@ def train_step(energy, gfn_model, gfn_optimizer, it,buffer, buffer_ls, args):
         loss = fwd_train_step(energy, gfn_model, exploration_std)
 
     loss.backward()
-    if args.energy == 'lj13' or args.energy == 'lj55':
+    if args.energy == 'lj13' or args.energy == 'lj55' or args.energy == 'dw4':
         torch.nn.utils.clip_grad_norm_(gfn_model.parameters(), 1.0)
     gfn_optimizer.step()
     return loss.item()
