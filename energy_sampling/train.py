@@ -321,7 +321,7 @@ def train():
     config = args.__dict__
     config["Experiment"] = "{args.energy}"
     wandb.init(project="GFN Energy", config=config, name=name)
-    check_particle = args.energy in ['lj13', 'lj55']
+    check_particle = args.energy in ['lj13', 'lj55', 'dw4']
     if check_particle:
         print("Using particle-experience architecture")
         particle_exp_param = energy._n_particles

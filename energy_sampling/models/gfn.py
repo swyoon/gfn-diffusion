@@ -55,10 +55,10 @@ class GFN(nn.Module):
             #self.t_model = torch.nn.Parameter(torch.tensor(0.).to(self.device))
             #self.s_model = torch.nn.Parameter(torch.tensor(0.).to(self.device))
             self.joint_model = EGNN_dynamics(n_particles= particle_exp,
-                                            n_dimension= 3, 
-                                            hidden_nf=64,
+                                            n_dimension= 2, 
+                                            hidden_nf=128,
                                             act_fn=torch.nn.SiLU(),
-                                            n_layers=3,
+                                            n_layers=2,
                                             recurrent=True, 
                                             attention=True,
                                             condition_time=True,
@@ -75,7 +75,7 @@ class GFN(nn.Module):
                                                      hidden_dim=hidden_dim,
                                                      t_emb_dim=t_dim,
                                                      t_feature_dim=hidden_dim) 
-                self.flow_model = invariant_wrapper(n_particles= particle_exp, n_dim = 3, net = flow_model_net, dis_reciprocal=False, eps=1.0, zero_init=zero_init)
+                self.flow_model = invariant_wrapper(n_particles= particle_exp, n_dim = 2, net = flow_model_net, dis_reciprocal=False, eps=1.0, zero_init=zero_init)
             else:
                 self.flow_model = torch.nn.Parameter(torch.tensor(0.).to(self.device))
 
