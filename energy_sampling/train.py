@@ -108,6 +108,7 @@ plot_data_size = 2000
 final_plot_data_size = 2000
 if args.energy == 'lj13' or args.energy == 'lj55' or args.energy == 'dw4':
     joint_number= 100
+    assert 10000 % joint_number ==0, "This is required for final sampling"
     eval_data_size = joint_number
     final_eval_data_size = joint_number
     plot_data_size = joint_number
@@ -373,9 +374,14 @@ def train():
     if args.energy == 'lj13' or args.energy == 'lj55' or args.energy == 'dw4':
         print(f"Loading best model with TVD-D: {best_tvd_d} for final sample generation")
         gfn_model.load_state_dict(torch.load(f'{name}best_model.pt'))
-        initial_state = torch.zeros(10000, energy.data_ndim).to(device)
-        states, _, _, _ = gfn_model.get_trajectory_fwd(initial_state, None, energy.log_reward)
-        samples = states[:, -1]
+        n_sample = 10000 // joint_number
+        total_samples = []
+        for _ in range(n_sample):
+            initial_state = torch.zeros(joint_number, energy.data_ndim).to(device)
+            states, _, _, _ = gfn_model.get_trajectory_fwd(initial_state, None, energy.log_reward)
+            samples = states[:, -1]
+            total_samples.append(samples.cpu())
+        samples = torch.cat(total_samples, dim=0)
         torch.save(samples, f'{name}final_samples_10000.pt')
     else:
         final_eval_data = energy.sample(final_eval_data_size)
